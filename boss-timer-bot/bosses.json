@@ -1,0 +1,48 @@
+{
+  "venatus": {
+    "interval": 21600000,
+    "lastKilled": 1767631093654,
+    "alertMinutes": 10,
+    "alerted": false
+  },
+  "viorent": {
+    "interval": 21600000,
+    "lastKilled": 1767632621186,
+    "alertMinutes": 10,
+    "alerted": false
+  },
+  "ego": {
+    "interval": 75600000,
+    "lastKilled": 1767697200000,
+    "alertMinutes": 10,
+    "alerted": false
+  },
+  "livera": {
+    "interval": 86400000,
+    "lastKilled": null,
+    "alertMinutes": 10,
+    "alerted": false
+  },
+  "clemantis": {
+    "fixedSpawns": [
+      {
+        "day": 1,
+        "hour": 11,
+        "minute": 30
+      },
+      {
+        "day": 4,
+        "hour": 19,
+        "minute": 0
+      }
+    ],
+    "alertMinutes": 10,
+    "lastNotified": null
+  },
+  "Araneo": {
+    "interval": 720000,
+    "lastKilled": 1767633277352,
+    "alertMinutes": 5,
+    "alerted": true
+  }
+}
