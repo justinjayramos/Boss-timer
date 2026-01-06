@@ -29,14 +29,14 @@ function saveBosses(data) {
 }
 
 function nowPH() {
-  return new Date(
-    new Date().toLocaleString("en-US", { timeZone: TIMEZONE })
-  );
+  return new Date();
 }
 
 function format12h(ts) {
   return new Date(ts).toLocaleString("en-US", {
     timeZone: TIMEZONE,
+    month: 'short',
+    day: 'numeric',
     hour: "numeric",
     minute: "2-digit",
     hour12: true
