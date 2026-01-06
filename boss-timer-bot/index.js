@@ -106,6 +106,100 @@ function parseTimeInput(timeStr) {
   return phDate.getTime();
 }
 
+function parseSchedule(scheduleStr) {
+  // Parse schedule like "monday 11:30, thursday 19:00"
+  const dayMap = {
+    sunday: 0, sun: 0,
+    monday: 1, mon: 1,
+    tuesday: 2, tue: 2, tues: 2,
+    wednesday: 3, wed: 3,
+    thursday: 4, thu: 4, thur: 4, thurs: 4,
+    friday: 5, fri: 5,
+    saturday: 6, sat: 6
+  };
+
+  const schedule = [];
+  const entries = scheduleStr.split(',').map(s => s.trim());
+
+  for (const entry of entries) {
+    const match = entry.match(/^(\w+)\s+(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+    if (!match) return null;
+
+    const dayStr = match[1].toLowerCase();
+    let hours = parseInt(match[2]);
+    const minutes = parseInt(match[3]);
+    const meridiem = match[4]?.toLowerCase();
+
+    // Validate day
+    if (!(dayStr in dayMap)) return null;
+    const dayOfWeek = dayMap[dayStr];
+
+    // Validate minutes
+    if (minutes < 0 || minutes > 59) return null;
+
+    // Handle 12-hour format
+    if (meridiem) {
+      if (hours < 1 || hours > 12) return null;
+      if (meridiem === 'pm' && hours !== 12) hours += 12;
+      if (meridiem === 'am' && hours === 12) hours = 0;
+    } else {
+      // 24-hour format
+      if (hours < 0 || hours > 23) return null;
+    }
+
+    schedule.push({ dayOfWeek, hours, minutes });
+  }
+
+  return schedule.length > 0 ? schedule : null;
+}
+
+function getNextScheduledTime(schedule) {
+  // Get current time in PH timezone
+  const now = new Date();
+  const phNow = new Date(now.toLocaleString("en-US", { timeZone: TIMEZONE }));
+  
+  const currentDay = phNow.getDay();
+  const currentHours = phNow.getHours();
+  const currentMinutes = phNow.getMinutes();
+  const currentTimeInMinutes = currentHours * 60 + currentMinutes;
+
+  let nextTime = null;
+  let minDiff = Infinity;
+
+  for (const slot of schedule) {
+    const slotTimeInMinutes = slot.hours * 60 + slot.minutes;
+    
+    // Calculate days until this slot
+    let dayDiff = slot.dayOfWeek - currentDay;
+    
+    // If same day but time hasn't passed yet
+    if (dayDiff === 0 && slotTimeInMinutes > currentTimeInMinutes) {
+      dayDiff = 0;
+    }
+    // If same day but time has passed, or earlier day of week
+    else if (dayDiff <= 0) {
+      dayDiff += 7;
+    }
+
+    const totalMinutesDiff = dayDiff * 24 * 60 + (slotTimeInMinutes - currentTimeInMinutes);
+    
+    if (totalMinutesDiff < minDiff) {
+      minDiff = totalMinutesDiff;
+      
+      // Calculate the actual timestamp
+      const nextDate = new Date(phNow);
+      nextDate.setDate(nextDate.getDate() + dayDiff);
+      nextDate.setHours(slot.hours, slot.minutes, 0, 0);
+      
+      // Convert back to UTC timestamp
+      const phDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}T${String(slot.hours).padStart(2, '0')}:${String(slot.minutes).padStart(2, '0')}:00+08:00`;
+      nextTime = new Date(phDateStr).getTime();
+    }
+  }
+
+  return nextTime;
+}
+
 /* =======================
    BOT
 ======================= */
@@ -173,8 +267,15 @@ client.on("messageCreate", async (message) => {
 
     const list = Object.entries(bosses)
       .map(([name, boss]) => {
+        let next = null;
+        
         if (boss.type === "interval" && boss.lastKilled) {
-          const next = boss.lastKilled + boss.interval * 60000;
+          next = boss.lastKilled + boss.interval * 60000;
+        } else if (boss.type === "schedule") {
+          next = getNextScheduledTime(boss.schedule);
+        }
+        
+        if (next) {
           const timeUntil = Math.ceil((next - now) / 60000);
           return {
             name,
@@ -182,6 +283,7 @@ client.on("messageCreate", async (message) => {
             text: `${format12h(next)} (${timeUntil > 0 ? minutesToText(timeUntil) : 'Ready!'})`
           };
         }
+        
         return null;
       })
       .filter(Boolean)
