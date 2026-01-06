@@ -131,6 +131,19 @@ client.on("messageCreate", message => {
       "`!bosses` — Show upcoming bosses\n" +
       "`!clearbosses confirm` — Delete ALL bosses"
     );
+
+    /* ===== !clearalldata ===== */
+    if (command === "clearalldata") {
+      if (args[0] !== "confirm") {
+        return message.reply(
+          "⚠️ This will delete **ALL boss data**.\n" +
+          "Type `!clearalldata confirm` to proceed."
+        );
+      }
+    
+      saveBosses({});
+      return message.reply("🧹 All boss data has been **completely cleared**.");
+    }
   }
 
   /* ===== !addboss ===== */
