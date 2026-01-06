@@ -29,7 +29,7 @@ function saveBosses(data) {
 }
 
 function nowPH() {
-  return new Date();
+  return new Date(); // Store in UTC, display in PH time
 }
 
 function format12h(ts) {
@@ -63,6 +63,47 @@ function parseIntervalToMinutes(input) {
   if (m) mins += Number(m[1]);
 
   return mins > 0 ? mins : null;
+}
+
+function parseTimeInput(timeStr) {
+  // Parse time in format "14:34" or "2:34pm" or "2:34 pm"
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+  if (!match) return null;
+
+  let hours = parseInt(match[1]);
+  const minutes = parseInt(match[2]);
+  const meridiem = match[3]?.toLowerCase();
+
+  // Validate minutes
+  if (minutes < 0 || minutes > 59) return null;
+
+  // Handle 12-hour format
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null;
+    if (meridiem === 'pm' && hours !== 12) hours += 12;
+    if (meridiem === 'am' && hours === 12) hours = 0;
+  } else {
+    // 24-hour format
+    if (hours < 0 || hours > 23) return null;
+  }
+
+  // Get current date in Philippine timezone
+  const now = new Date();
+  const phDateString = now.toLocaleString("en-US", { 
+    timeZone: TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour12: false
+  });
+  
+  const [month, day, year] = phDateString.split(', ')[0].split('/');
+  
+  // Create date with specified time in Philippine timezone
+  // We need to construct the ISO string for the PH timezone
+  const phDate = new Date(`${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+08:00`);
+  
+  return phDate.getTime();
 }
 
 /* =======================
@@ -106,7 +147,21 @@ client.on("messageCreate", async (message) => {
     if (!name || !bosses[name]) return message.reply("❌ Boss not found.");
 
     const boss = bosses[name];
-    boss.lastKilled = nowPH().getTime();
+    
+    // Check if time is provided
+    const timeStr = args[0];
+    let killTime;
+    
+    if (timeStr) {
+      killTime = parseTimeInput(timeStr);
+      if (!killTime) {
+        return message.reply("❌ Invalid time format. Use `14:34` (24h) or `2:34pm` (12h)");
+      }
+    } else {
+      killTime = nowPH().getTime();
+    }
+    
+    boss.lastKilled = killTime;
 
     saveBosses(bosses);
     return message.reply(`☠️ **${name}** marked killed at ${format12h(boss.lastKilled)}`);
@@ -120,10 +175,11 @@ client.on("messageCreate", async (message) => {
       .map(([name, boss]) => {
         if (boss.type === "interval" && boss.lastKilled) {
           const next = boss.lastKilled + boss.interval * 60000;
+          const timeUntil = Math.ceil((next - now) / 60000);
           return {
             name,
             next,
-            text: `${format12h(next)} (${minutesToText(Math.ceil((next - now) / 60000))})`
+            text: `${format12h(next)} (${timeUntil > 0 ? minutesToText(timeUntil) : 'Ready!'})`
           };
         }
         return null;
@@ -150,7 +206,8 @@ client.on("messageCreate", async (message) => {
     return message.reply(
       "**📖 Boss Timer Commands**\n" +
       "`!addboss <name> <interval>` – Add interval boss (10h, 30m)\n" +
-      "`!killed <name>` – Mark boss killed\n" +
+      "`!killed <name>` – Mark boss killed now\n" +
+      "`!killed <name> <time>` – Mark boss killed at time (14:34 or 2:34pm)\n" +
       "`!bosses` – Show next spawns (sorted)\n" +
       "`!clearbosses` – Clear all boss data\n"
     );
