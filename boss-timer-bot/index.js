@@ -236,7 +236,7 @@ client.on("messageCreate", async message => {
   }
 
   /* !bosses */
-  if (command === "bosses") {
+if (command === "bosses") {
   const bosses = loadBosses();
 
   if (Object.keys(bosses).length === 0) {
@@ -245,17 +245,23 @@ client.on("messageCreate", async message => {
 
   const bossList = Object.entries(bosses)
     .map(([name, boss]) => {
-      const nextSpawn = getNextSpawnTimestamp(boss);
-      return { name, boss, nextSpawn };
+      return {
+        name,
+        boss,
+        nextSpawn: getNextSpawnTimestamp(boss)
+      };
     })
-    .sort((a, b) => a.nextSpawn - b.nextSpawn);
+    .sort((a, b) => {
+      if (a.nextSpawn === null) return 1;
+      if (b.nextSpawn === null) return -1;
+      return a.nextSpawn - b.nextSpawn;
+    });
 
   let reply = "**🗓 Boss Spawn Timers (Soonest First)**\n\n";
 
-  for (const item of bossList) {
-    const { name, boss, nextSpawn } = item;
+  for (const { name, boss, nextSpawn } of bossList) {
 
-    // 📅 Fixed-day boss
+    // 📅 FIXED-DAY BOSS
     if (boss.type === "fixed") {
       const schedule = boss.fixedSpawns
         .map(s => `${s.day} ${s.time}`)
@@ -265,7 +271,13 @@ client.on("messageCreate", async message => {
       continue;
     }
 
-    // ⏱ Interval boss
+    // ⏱ INTERVAL BOSS (NO KILL YET)
+    if (!nextSpawn) {
+      reply += `**${name}**\n⏳ No kill recorded yet\n\n`;
+      continue;
+    }
+
+    // ⏱ INTERVAL BOSS (NORMAL)
     const date = new Date(nextSpawn);
     const timeStr = date.toLocaleString("en-US", {
       hour: "numeric",
@@ -274,7 +286,7 @@ client.on("messageCreate", async message => {
     });
 
     const minutesLeft = Math.max(
-      Math.floor((nextSpawn - Date.now()) / 60000),
+      Math.ceil((nextSpawn - Date.now()) / 60000),
       0
     );
 
