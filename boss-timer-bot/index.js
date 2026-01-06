@@ -250,7 +250,7 @@ client.on("messageCreate", async (message) => {
       };
 
       saveBosses(bosses);
-      return message.reply(`✅ Boss **${name}** added (${minutesToText(interval)})`);
+      return message.reply(`✅ Boss **${name}** added (${minutesToText(interval)}). Status: Ready!`);
     }
     
     return message.reply("❌ Invalid format. Use interval (`10h`, `30m`) or schedule (`monday 11:30, thursday 19:00`)");
@@ -294,14 +294,29 @@ client.on("messageCreate", async (message) => {
     const list = Object.entries(bosses)
       .map(([name, boss]) => {
         let next = null;
+        let isReady = false;
         
-        if (boss.type === "interval" && boss.lastKilled) {
-          next = boss.lastKilled + boss.interval * 60000;
+        if (boss.type === "interval") {
+          if (boss.lastKilled) {
+            next = boss.lastKilled + boss.interval * 60000;
+          } else {
+            // Boss hasn't been killed yet, mark as ready
+            isReady = true;
+            next = now; // Use now for sorting purposes
+          }
         } else if (boss.type === "schedule") {
           next = getNextScheduledTime(boss.schedule);
         }
         
-        if (next) {
+        if (next || isReady) {
+          if (isReady) {
+            return {
+              name,
+              next,
+              text: 'Ready!'
+            };
+          }
+          
           const timeUntil = Math.ceil((next - now) / 60000);
           return {
             name,
