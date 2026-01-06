@@ -1,252 +1,160 @@
+require("dotenv").config();
 const fs = require("fs");
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
 const PREFIX = "!";
-const BOSSES_FILE = "./bosses.json";
+const DATA_FILE = "./bosses.json";
+const TIMEZONE = "Asia/Manila";
 
 /* =======================
-   FILE HELPERS
+   UTILITIES
 ======================= */
 
 function loadBosses() {
-  if (!fs.existsSync(BOSSES_FILE)) return {};
+  if (!fs.existsSync(DATA_FILE)) return {};
   try {
-    return JSON.parse(fs.readFileSync(BOSSES_FILE, "utf8"));
+    const data = fs.readFileSync(DATA_FILE, "utf8");
+    if (!data.trim()) return {};
+    return JSON.parse(data);
   } catch {
     return {};
   }
 }
 
 function saveBosses(data) {
-  fs.writeFileSync(BOSSES_FILE, JSON.stringify(data, null, 2));
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-/* =======================
-   TIME HELPERS
-======================= */
-
-function parseIntervalToMinutes(input) {
-  if (!input) return null;
-
-  if (/^\d+$/.test(input)) {
-    return Number(input);
-  }
-
-  let minutes = 0;
-  const h = input.match(/(\d+)\s*h/i);
-  const m = input.match(/(\d+)\s*m/i);
-
-  if (h) minutes += Number(h[1]) * 60;
-  if (m) minutes += Number(m[1]);
-
-  return minutes > 0 ? minutes : null;
-}
-
-function getNextSpawnTimestamp(boss) {
-  const now = Date.now();
-
-  if (boss.type === "interval") {
-    if (!boss.lastKilled || !boss.intervalMinutes) return null;
-    return boss.lastKilled + boss.intervalMinutes * 60000;
-  }
-
-  if (boss.type === "fixed") {
-    const upcoming = boss.fixedSpawns
-      .map(s => s.next)
-      .filter(t => typeof t === "number" && t > now);
-
-    return upcoming.length ? Math.min(...upcoming) : null;
-  }
-
-  return null;
+function nowPH() {
+  return new Date(
+    new Date().toLocaleString("en-US", { timeZone: TIMEZONE })
+  );
 }
 
 function format12h(ts) {
   return new Date(ts).toLocaleString("en-US", {
+    timeZone: TIMEZONE,
     hour: "numeric",
     minute: "2-digit",
     hour12: true
   });
 }
 
-function parseFixedSpawns(input) {
-  const days = {
-    sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
-    thursday: 4, friday: 5, saturday: 6
-  };
+function minutesToText(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
 
-  return input.split(",").map(part => {
-    const match = part.trim().match(
-      /(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+(\d{1,2}):(\d{2})\s*(am|pm)/i
-    );
-    if (!match) return null;
+function parseIntervalToMinutes(input) {
+  if (!input) return null;
+  if (/^\d+$/.test(input)) return Number(input);
 
-    let [, day, h, m, ap] = match;
-    h = parseInt(h);
-    m = parseInt(m);
+  let mins = 0;
+  const h = input.match(/(\d+)h/i);
+  const m = input.match(/(\d+)m/i);
 
-    if (ap.toLowerCase() === "pm" && h !== 12) h += 12;
-    if (ap.toLowerCase() === "am" && h === 12) h = 0;
+  if (h) mins += Number(h[1]) * 60;
+  if (m) mins += Number(m[1]);
 
-    const now = new Date();
-    const target = new Date(now);
-    target.setHours(h, m, 0, 0);
-
-    let diff = days[day.toLowerCase()] - target.getDay();
-    if (diff < 0 || (diff === 0 && target <= now)) diff += 7;
-    target.setDate(target.getDate() + diff);
-
-    return {
-      day: day.charAt(0).toUpperCase() + day.slice(1),
-      time: `${match[2]}:${match[3]} ${match[4].toUpperCase()}`,
-      next: target.getTime()
-    };
-  }).filter(Boolean);
+  return mins > 0 ? mins : null;
 }
 
 /* =======================
-   READY
+   BOT
 ======================= */
 
 client.once("ready", () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-/* =======================
-   COMMAND HANDLER
-======================= */
-
-client.on("messageCreate", message => {
+client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
-  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+  const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
   const command = args.shift().toLowerCase();
   const bosses = loadBosses();
 
-  /* !commands */
-  if (command === "commands") {
-    return message.reply(
-      "**📜 Boss Timer Commands**\n\n" +
-      "`!addboss <name> <time>` — Interval boss (30m, 2h, 1h30m)\n" +
-      "`!addboss <name> fixed <schedule>` — Fixed-day boss\n" +
-      "`!killed <name> [HH:MM]` — Mark boss killed\n" +
-      "`!bosses` — Show upcoming bosses\n" +
-      "`!clearbosses confirm` — Clear bosses\n" +
-      "`!clearalldata confirm` — Clear ALL data"
-    );
-  }
-
-  /* !addboss */
+  /* ---------- !addboss ---------- */
   if (command === "addboss") {
-    const name = args.shift();
-    if (!name) return message.reply("❌ Boss name required.");
+    const name = args.shift()?.toLowerCase();
+    if (!name) return message.reply("❌ Usage: `!addboss <name> <interval>`");
 
-    if (args[0] === "fixed") {
-      const fixedSpawns = parseFixedSpawns(args.slice(1).join(" "));
-      if (!fixedSpawns.length)
-        return message.reply("❌ Invalid fixed-day format.");
-
-      bosses[name] = { type: "fixed", fixedSpawns };
-      saveBosses(bosses);
-      return message.reply(`✅ Fixed boss **${name}** added.`);
+    const interval = parseIntervalToMinutes(args.join(""));
+    if (!interval) {
+      return message.reply("❌ Invalid interval. Examples: `10h`, `30m`, `1h30m`, `90`");
     }
-
-    const interval = parseIntervalToMinutes(args[0]);
-    if (!interval)
-      return message.reply("❌ Invalid interval. Examples: 30m, 2h, 1h30m");
 
     bosses[name] = {
       type: "interval",
-      intervalMinutes: interval,
+      interval,
       lastKilled: null
     };
 
     saveBosses(bosses);
-    return message.reply(`✅ Interval boss **${name}** added.`);
+    return message.reply(`✅ Boss **${name}** added (${minutesToText(interval)})`);
   }
 
-  /* !killed */
+  /* ---------- !killed ---------- */
   if (command === "killed") {
-    const name = args[0];
-    if (!name || !bosses[name])
-      return message.reply("❌ Boss not found.");
+    const name = args.shift()?.toLowerCase();
+    if (!name || !bosses[name]) return message.reply("❌ Boss not found.");
 
     const boss = bosses[name];
-    let time = new Date();
-
-    if (args[1]) {
-      const [h, m] = args[1].split(":").map(Number);
-      if (isNaN(h) || isNaN(m))
-        return message.reply("❌ Use HH:MM (24h)");
-
-      time.setHours(h, m, 0, 0);
-    }
-
-    if (boss.type === "interval") {
-      boss.lastKilled = time.getTime();
-    }
+    boss.lastKilled = nowPH().getTime();
 
     saveBosses(bosses);
-    return message.reply(`☠️ **${name}** marked killed.`);
+    return message.reply(`☠️ **${name}** marked killed at ${format12h(boss.lastKilled)}`);
   }
 
-  /* !bosses */
+  /* ---------- !bosses ---------- */
   if (command === "bosses") {
-    if (!Object.keys(bosses).length)
-      return message.reply("❌ No bosses added.");
+    const now = nowPH().getTime();
 
-    const sorted = Object.entries(bosses)
-      .map(([name, boss]) => ({
-        name,
-        boss,
-        next: getNextSpawnTimestamp(boss)
-      }))
-      .sort((a, b) => {
-        if (a.next === null) return 1;
-        if (b.next === null) return -1;
-        return a.next - b.next;
-      });
+    const list = Object.entries(bosses)
+      .map(([name, boss]) => {
+        if (boss.type === "interval" && boss.lastKilled) {
+          const next = boss.lastKilled + boss.interval * 60000;
+          return {
+            name,
+            next,
+            text: `${format12h(next)} (${minutesToText(Math.ceil((next - now) / 60000))})`
+          };
+        }
+        return null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.next - b.next);
 
-    let msg = "**🗓 Boss Spawn Timers (Soonest First)**\n\n";
+    if (!list.length) return message.reply("⚠️ No active boss timers.");
 
-    for (const { name, boss, next } of sorted) {
-      if (boss.type === "fixed") {
-        msg += `**${name}**\n📅 ${boss.fixedSpawns.map(s => `${s.day} ${s.time}`).join(", ")}\n\n`;
-      } else if (!next) {
-        msg += `**${name}**\n⏳ No kill recorded yet\n\n`;
-      } else {
-        const mins = Math.ceil((next - Date.now()) / 60000);
-        msg += `**${name}**\n⏰ Next spawn: ${format12h(next)} (${mins} min)\n\n`;
-      }
-    }
-
-    return message.reply(msg);
+    return message.reply(
+      "**📜 Boss Timers (Soonest First)**\n\n" +
+      list.map(b => `**${b.name}** → ${b.text}`).join("\n")
+    );
   }
 
-  /* !clearbosses */
+  /* ---------- !clearbosses ---------- */
   if (command === "clearbosses") {
-    if (args[0] !== "confirm")
-      return message.reply("⚠️ Use `!clearbosses confirm`");
-
     saveBosses({});
-    return message.reply("🧹 Boss timers cleared.");
+    return message.reply("🧹 All boss data cleared.");
   }
 
-  /* !clearalldata */
-  if (command === "clearalldata") {
-    if (args[0] !== "confirm")
-      return message.reply("⚠️ Use `!clearalldata confirm`");
-
-    saveBosses({});
-    return message.reply("🧹 ALL boss data cleared.");
+  /* ---------- !commands ---------- */
+  if (command === "commands") {
+    return message.reply(
+      "**📖 Boss Timer Commands**\n" +
+      "`!addboss <name> <interval>` – Add interval boss (10h, 30m)\n" +
+      "`!killed <name>` – Mark boss killed\n" +
+      "`!bosses` – Show next spawns (sorted)\n" +
+      "`!clearbosses` – Clear all boss data\n"
+    );
   }
 });
 
