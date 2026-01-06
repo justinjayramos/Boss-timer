@@ -100,7 +100,6 @@ function parseTimeInput(timeStr) {
   const [month, day, year] = phDateString.split(', ')[0].split('/');
   
   // Create date with specified time in Philippine timezone
-  // We need to construct the ISO string for the PH timezone
   const phDate = new Date(`${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+08:00`);
   
   return phDate.getTime();
@@ -218,21 +217,43 @@ client.on("messageCreate", async (message) => {
   /* ---------- !addboss ---------- */
   if (command === "addboss") {
     const name = args.shift()?.toLowerCase();
-    if (!name) return message.reply("❌ Usage: `!addboss <name> <interval>`");
-
-    const interval = parseIntervalToMinutes(args.join(""));
-    if (!interval) {
-      return message.reply("❌ Invalid interval. Examples: `10h`, `30m`, `1h30m`, `90`");
+    if (!name) {
+      return message.reply("❌ Usage: `!addboss <name> <interval>` or `!addboss <name> <schedule>`");
     }
 
-    bosses[name] = {
-      type: "interval",
-      interval,
-      lastKilled: null
-    };
+    const restOfArgs = args.join(" ");
+    
+    // Try parsing as schedule first (contains day names)
+    const schedule = parseSchedule(restOfArgs);
+    if (schedule) {
+      bosses[name] = {
+        type: "schedule",
+        schedule
+      };
+      
+      const scheduleText = schedule.map(s => {
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        return `${days[s.dayOfWeek]} ${String(s.hours).padStart(2, '0')}:${String(s.minutes).padStart(2, '0')}`;
+      }).join(', ');
+      
+      saveBosses(bosses);
+      return message.reply(`✅ Boss **${name}** added with schedule: ${scheduleText}`);
+    }
+    
+    // Try parsing as interval
+    const interval = parseIntervalToMinutes(restOfArgs);
+    if (interval) {
+      bosses[name] = {
+        type: "interval",
+        interval,
+        lastKilled: null
+      };
 
-    saveBosses(bosses);
-    return message.reply(`✅ Boss **${name}** added (${minutesToText(interval)})`);
+      saveBosses(bosses);
+      return message.reply(`✅ Boss **${name}** added (${minutesToText(interval)})`);
+    }
+    
+    return message.reply("❌ Invalid format. Use interval (`10h`, `30m`) or schedule (`monday 11:30, thursday 19:00`)");
   }
 
   /* ---------- !killed ---------- */
@@ -241,6 +262,11 @@ client.on("messageCreate", async (message) => {
     if (!name || !bosses[name]) return message.reply("❌ Boss not found.");
 
     const boss = bosses[name];
+    
+    // Check if this is a scheduled boss
+    if (boss.type === "schedule") {
+      return message.reply("❌ Cannot use `!killed` on scheduled bosses. They spawn at fixed times.");
+    }
     
     // Check if time is provided
     const timeStr = args[0];
@@ -292,7 +318,7 @@ client.on("messageCreate", async (message) => {
     if (!list.length) return message.reply("⚠️ No active boss timers.");
 
     return message.reply(
-      "**📜 Boss Timers**\n\n" +
+      "**📜 Boss Timers (Soonest First)**\n\n" +
       list.map(b => `**${b.name}** → ${b.text}`).join("\n")
     );
   }
@@ -307,9 +333,10 @@ client.on("messageCreate", async (message) => {
   if (command === "commands") {
     return message.reply(
       "**📖 Boss Timer Commands**\n" +
-      "`!addboss <name> <interval>` – Add interval boss (10h, 30m)\n" +
+      "`!addboss <name> <interval>` – Add interval boss (e.g., `10h`, `30m`, `1h30m`)\n" +
+      "`!addboss <name> <schedule>` – Add scheduled boss (e.g., `monday 11:30, thursday 19:00`)\n" +
       "`!killed <name>` – Mark boss killed now\n" +
-      "`!killed <name> <time>` – Mark boss killed at time (14:34 or 2:34pm)\n" +
+      "`!killed <name> <time>` – Mark boss killed at time (e.g., `14:34` or `2:34pm`)\n" +
       "`!bosses` – Show next spawns (sorted)\n" +
       "`!clearbosses` – Clear all boss data\n"
     );
