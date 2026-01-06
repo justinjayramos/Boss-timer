@@ -88,25 +88,23 @@ function getNextSpawnTimestamp(boss) {
   const now = Date.now();
 
   // ⏱ Interval-based boss
-  if (boss.intervalMinutes && boss.lastKilled) {
+  if (boss.type === "interval") {
+    if (!boss.lastKilled || !boss.intervalMinutes) return null;
     return boss.lastKilled + boss.intervalMinutes * 60 * 1000;
   }
 
   // 📅 Fixed-day boss
-  if (boss.fixedSpawns && boss.fixedSpawns.length > 0) {
-    let soonest = null;
+  if (boss.type === "fixed" && Array.isArray(boss.fixedSpawns)) {
+    const upcoming = boss.fixedSpawns
+      .map(s => s.next)
+      .filter(t => typeof t === "number" && t > now);
 
-    for (const spawn of boss.fixedSpawns) {
-      if (!soonest || spawn.next < soonest) {
-        soonest = spawn.next;
-      }
-    }
-
-    return soonest;
+    return upcoming.length ? Math.min(...upcoming) : null;
   }
 
-  return Infinity;
+  return null;
 }
+
 
 
 /* ------------------ READY ------------------ */
