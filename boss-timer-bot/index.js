@@ -190,7 +190,7 @@ client.on("messageCreate", async (message) => {
     if (!list.length) return message.reply("⚠️ No active boss timers.");
 
     return message.reply(
-      "**📜 Boss Timers (Soonest First)**\n\n" +
+      "**📜 Boss Timers**\n\n" +
       list.map(b => `**${b.name}** → ${b.text}`).join("\n")
     );
   }
