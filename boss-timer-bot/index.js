@@ -84,6 +84,31 @@ function formatFixedSpawns(fixedSpawns) {
   }).join(", ");
 }
 
+function getNextSpawnTimestamp(boss) {
+  const now = Date.now();
+
+  // ⏱ Interval-based boss
+  if (boss.intervalMinutes && boss.lastKilled) {
+    return boss.lastKilled + boss.intervalMinutes * 60 * 1000;
+  }
+
+  // 📅 Fixed-day boss
+  if (boss.fixedSpawns && boss.fixedSpawns.length > 0) {
+    let soonest = null;
+
+    for (const spawn of boss.fixedSpawns) {
+      if (!soonest || spawn.next < soonest) {
+        soonest = spawn.next;
+      }
+    }
+
+    return soonest;
+  }
+
+  return Infinity;
+}
+
+
 /* ------------------ READY ------------------ */
 client.on("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -214,31 +239,52 @@ client.on("messageCreate", async message => {
 
   /* !bosses */
   if (command === "bosses") {
-    if (!Object.keys(bosses).length) return message.reply("No bosses tracked.");
+  const bosses = loadBosses();
 
-    let reply = "**📋 Boss Timers**\n";
-    const now = new Date();
+  if (Object.keys(bosses).length === 0) {
+    return message.reply("❌ No bosses have been added yet.");
+  }
 
-    for (const [name, data] of Object.entries(bosses)) {
-      if (data.interval && data.lastKilled) {
-        const next = new Date(data.lastKilled + data.interval);
-        reply += `• **${name}** — Next: ${next.toLocaleString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true
-        })}\n`;
-      } else if (data.fixedSpawns) {
-        const next = nextFixedSpawn(data.fixedSpawns);
-        reply += `• **${name}** — Spawns: ${formatFixedSpawns(data.fixedSpawns)} | Next: ${next.toLocaleString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true
-        })}\n`;
-      }
+  const bossList = Object.entries(bosses)
+    .map(([name, boss]) => {
+      const nextSpawn = getNextSpawnTimestamp(boss);
+      return { name, boss, nextSpawn };
+    })
+    .sort((a, b) => a.nextSpawn - b.nextSpawn);
+
+  let reply = "**🗓 Boss Spawn Timers (Soonest First)**\n\n";
+
+  for (const item of bossList) {
+    const { name, boss, nextSpawn } = item;
+
+    // 📅 Fixed-day boss
+    if (boss.type === "fixed") {
+      const schedule = boss.fixedSpawns
+        .map(s => `${s.day} ${s.time}`)
+        .join(", ");
+
+      reply += `**${name}**\n📅 ${schedule}\n\n`;
+      continue;
     }
 
-    message.reply(reply);
+    // ⏱ Interval boss
+    const date = new Date(nextSpawn);
+    const timeStr = date.toLocaleString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    });
+
+    const minutesLeft = Math.max(
+      Math.floor((nextSpawn - Date.now()) / 60000),
+      0
+    );
+
+    reply += `**${name}**\n⏰ Next spawn: ${timeStr} (${minutesLeft} min)\n\n`;
   }
+
+  message.reply(reply);
+}
 });
 
 client.login(process.env.DISCORD_TOKEN);
